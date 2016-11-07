@@ -1,10 +1,17 @@
+// === Game tutorial machine - LEGEND TO PLAY
+// --- Usage - Keypad actions ------------------------------------------------------
+// press * and then press A..D to choose game legend set
+// press # and then press 0..9 to set sound volume level
+// press repeatedly 0..9 to enter up to 3-digit number folowed by # to choose legend
+// ---------------------------------------------------------------------------------
+
 // libraries
-#include <Keypad.h>				       //(included with Arduino IDE)
+#include <Keypad.h>				 //(included with Arduino IDE)
 #include <Timer.h>               //http://playground.arduino.cc/Code/Timer
 #include <SoftwareSerial.h>      //http://arduino.cc/en/Reference/SoftwareSerial (included with Arduino IDE)
 #include <DFPlayer_Mini_Mp3.h>   //http://github.com/DFRobot/DFPlayer-Mini-mp3
 
-#define debug_mode true
+#define debug_mode false
 
 // =========================== HW peripherals ========================
 
@@ -22,7 +29,7 @@ char keys[rows][columns] = {
   {'7','8','9','C'},
   {'*','0','#','D'}
 };
-// Keypad pins
+// Keypad digital pins
 uint8_t RowPins[rows] = {2, 3, 4, 5};
 uint8_t ColumnPins[columns] =  {6, 7, 8, 9};
 
@@ -34,7 +41,7 @@ Keypad keyboard = Keypad( makeKeymap(keys), RowPins, ColumnPins, rows, columns);
 
 // --- MP3 - DFPlayer mini mp3 module
 SoftwareSerial mp3Serial(10, 11); // RX, TX
-#define default_sound_volume 20 // 0..30
+#define DEFAULT_SOUND_VOLUME 20   // 0..30
 
 // =========================== SW modules ========================
 // --- Action timer
@@ -61,8 +68,8 @@ struct StateMachine{
 // --- Core
 #define MAX_KEYPAD_BUFFER_LENGTH 3
 
-String keypadbuffer = ""; // string buffer 
-uint16_t mode = 1000; // mp3 file index base - A-1000, B-2000, C-3000, D-4000
+String keypadbuffer = ""; // input string buffer to read up to 3-digit numbers
+uint16_t glsb = 1000;     // game legend set base - mp3 file index base - A-1000, B-2000, C-3000, D-4000
 
 // =================================== SETUP ====================
 void setup() {
@@ -81,7 +88,7 @@ void setup() {
     mp3Serial.begin(9600);
     mp3_set_serial (mp3Serial); //set Serial for DFPlayer-mini mp3 module
     delay(1);  //wait 1ms for mp3 module to set volume
-    mp3_set_volume (default_sound_volume);
+    mp3_set_volume (DEFAULT_SOUND_VOLUME);
   Serial.println(">> MP3 Player Initialized");
 
   Serial.println(">> Core...");
@@ -106,7 +113,7 @@ void loop() {
   // pressed key processing
   if (_key){
     if (debug_mode){
-      Serial.print("Stisknuta _key: ");
+      Serial.print("Pressed key: ");
       Serial.println(_key);
       Serial.print(sm.state);
       Serial.print("->");
@@ -122,7 +129,7 @@ void loop() {
       else if (CNs1t4(_key)) { sm.last_state = SM_START; TNs1t4(); }  // #
       else if (CNs1t3(_key)) { sm.last_state = SM_START; TNs1t3(_key); }  // 0..9
       break;
-    case 2: // reading mode
+    case 2: // reading game legend set base
       if (CNs2t1(_key)) { sm.last_state = 2; TNs2t1(_key); } // A..D
       else { sm.last_state = 2; _clear(); } // * # 0..9
       break;
@@ -190,13 +197,13 @@ void TNs1t4 () {
 
 void TNs2t1 (char c) {
   switch (c) {
-    case 'A': { mode = 1000; mp3_play(mode);}
+    case 'A': { glsb = 1000; mp3_play(glsb);}
     break;
-    case 'B': { mode = 2000; mp3_play(mode);}
+    case 'B': { glsb = 2000; mp3_play(glsb);}
     break;
-    case 'C': { mode = 3000; mp3_play(mode);}
+    case 'C': { glsb = 3000; mp3_play(glsb);}
     break;
-    case 'D': { mode = 4000; mp3_play(mode);}
+    case 'D': { glsb = 4000; mp3_play(glsb);}
     break;
   }
 
@@ -206,10 +213,10 @@ void TNs2t1 (char c) {
 void TNs3t1 () {
   // play sound
   if (debug_mode){ 
-    Serial.println(mode + keypadbuffer.toInt());
+    Serial.println(glsb + keypadbuffer.toInt());
   }
 
-  mp3_play(mode + keypadbuffer.toInt());
+  mp3_play(glsb + keypadbuffer.toInt());
   _clear();
 }
 
