@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------------
 
 // libraries
-#include <Keypad.h>				 //(included with Arduino IDE)
+#include <Keypad.h>              //(included with Arduino IDE)
 #include <Timer.h>               //http://playground.arduino.cc/Code/Timer
 #include <SoftwareSerial.h>      //http://arduino.cc/en/Reference/SoftwareSerial (included with Arduino IDE)
 #include <DFPlayer_Mini_Mp3.h>   //http://github.com/DFRobot/DFPlayer-Mini-mp3
@@ -139,7 +139,7 @@ void loop() {
       else { sm.last_state = 3; _clear(); } // * A..D
       break;
     case 4: // reading volume 
-      if (CNs4t1(_key)) { sm.last_state = 4;  TNs4t1(); }  // 0..9
+      if (CNs4t1(_key)) { sm.last_state = 4;  TNs4t1(_key); }  // 0..9
       else { sm.last_state = 4; _clear(); } // * # A..D
       break;
     }
@@ -213,7 +213,8 @@ void TNs2t1 (char c) {
 void TNs3t1 () {
   // play sound
   if (debug_mode){ 
-    Serial.println(glsb + keypadbuffer.toInt());
+    Serial.print(glsb + keypadbuffer.toInt());
+    Serial.print(":");
   }
 
   mp3_play(glsb + keypadbuffer.toInt());
@@ -224,9 +225,15 @@ void TNs3t3 (char c) {
   if (keypadbuffer.length() < MAX_KEYPAD_BUFFER_LENGTH) keypadbuffer += c;
 }
 
-void TNs4t1 () {
+void TNs4t1 (char c) {
   // set volume
-  if (debug_mode){ Serial.println(keypadbuffer.toInt());};
+  if (keypadbuffer.length() < MAX_KEYPAD_BUFFER_LENGTH) keypadbuffer += c;  
+  
+  if (debug_mode){ 
+    Serial.print(keypadbuffer.toInt());
+    Serial.print(":");
+    Serial.println(map(keypadbuffer.toInt(),0,9,0,30));
+  };
 
   mp3_set_volume (map(keypadbuffer.toInt(),0,9,0,30));
   _clear();
