@@ -11,7 +11,7 @@
 #include <SoftwareSerial.h>      //http://arduino.cc/en/Reference/SoftwareSerial (included with Arduino IDE)
 #include <DFPlayer_Mini_Mp3.h>   //http://github.com/DFRobot/DFPlayer-Mini-mp3
 
-#define debug_mode false
+#define debug_mode
 
 // =========================== HW peripherals ========================
 
@@ -31,7 +31,7 @@ char keys[rows][columns] = {
 };
 // Keypad digital pins
 uint8_t RowPins[rows] = {2, 3, 4, 5};
-uint8_t ColumnPins[columns] =  {6, 7, 8, 9};
+uint8_t ColumnPins[columns] =  {6, 7, 8, 12};
 
 // Keypad object
 Keypad keyboard = Keypad( makeKeymap(keys), RowPins, ColumnPins, rows, columns);
@@ -41,7 +41,8 @@ Keypad keyboard = Keypad( makeKeymap(keys), RowPins, ColumnPins, rows, columns);
 
 // --- MP3 - DFPlayer mini mp3 module
 SoftwareSerial mp3Serial(10, 11); // RX, TX
-#define DEFAULT_SOUND_VOLUME 20   // 0..30
+#define DEFAULT_SOUND_VOLUME 15   // 0..30
+#define MP3_STATUS  9  // pin mp3 status flag LOW means Busy/Playing
 
 // =========================== SW modules ========================
 // --- Action timer
@@ -69,13 +70,13 @@ struct StateMachine{
 #define MAX_KEYPAD_BUFFER_LENGTH 3
 
 String keypadbuffer = ""; // input string buffer to read up to 3-digit numbers
-uint16_t glsb = 1000;     // game legend set base - mp3 file index base - A-1000, B-2000, C-3000, D-4000
+uint16_t glsb = 1;        // game legend set base - mp3 file index base - A-1, B-2, C-3, D-4
 
 // =================================== SETUP ====================
 void setup() {
   // Serial communication 38400 baud
   Serial.begin(38400);
-  Serial.println("------ Speaking game tutorial, Firmware version 0.1");
+  Serial.println("------ Speaking game tutorial, Firmware version 0.2");
 
   Serial.println(">> Status LED...");
   // Pin 13 has an LED connected on most Arduino boards:
@@ -84,6 +85,7 @@ void setup() {
   Serial.println(">> Status LED Initialized");
 
   Serial.println(">> MP3 Player...");
+    pinMode(MP3_STATUS, INPUT);
   // MP3 serial communication setup
     mp3Serial.begin(9600);
     mp3_set_serial (mp3Serial); //set Serial for DFPlayer-mini mp3 module
@@ -112,42 +114,42 @@ void loop() {
 
   // pressed key processing
   if (_key){
-    if (debug_mode){
+    #ifdef debug_mode
       Serial.print("Pressed key: ");
       Serial.println(_key);
       Serial.print(sm.state);
       Serial.print("->");
+    #endif
+
+    // restart idle timer 
+    _restartidletimer();
+
+    // Main event-based decision routine
+    switch (sm.state){
+      case 1: // Initial
+        if (CNs1t2(_key)) { sm.last_state = SM_START;  TNs1t2(); }  // *
+        else if (CNs1t4(_key)) { sm.last_state = SM_START; TNs1t4(); }  // #
+        else if (CNs1t3(_key)) { sm.last_state = SM_START; TNs1t3(_key); }  // 0..9
+        break;
+      case 2: // reading game legend set base
+        if (CNs2t1(_key)) { sm.last_state = 2; TNs2t1(_key); } // A..D
+        else { sm.last_state = 2; _clear(); } // * # 0..9
+        break;
+      case 3: // reading sound index
+        if (CNs3t3(_key)) { sm.last_state = 3; TNs3t3(_key); } // 0..9
+        else if (CNs3t1(_key)) { sm.last_state = 3; TNs3t1(); } // #
+        else { sm.last_state = 3; _clear(); } // * A..D
+        break;
+      case 4: // reading volume 
+        if (CNs4t1(_key)) { sm.last_state = 4;  TNs4t1(_key); }  // 0..9
+        else { sm.last_state = 4; _clear(); } // * # A..D
+        break;
     }
 
-  // restart idle timers 
-  _restartidletimer();
-
-  // Main event-based decision routine
-  switch (sm.state){
-    case 1: // Initial
-      if (CNs1t2(_key)) { sm.last_state = SM_START;  TNs1t2(); }  // *
-      else if (CNs1t4(_key)) { sm.last_state = SM_START; TNs1t4(); }  // #
-      else if (CNs1t3(_key)) { sm.last_state = SM_START; TNs1t3(_key); }  // 0..9
-      break;
-    case 2: // reading game legend set base
-      if (CNs2t1(_key)) { sm.last_state = 2; TNs2t1(_key); } // A..D
-      else { sm.last_state = 2; _clear(); } // * # 0..9
-      break;
-    case 3: // reading sound index
-      if (CNs3t3(_key)) { sm.last_state = 3; TNs3t3(_key); } // 0..9
-      else if (CNs3t1(_key)) { sm.last_state = 3; TNs3t1(); } // #
-      else { sm.last_state = 3; _clear(); } // * A..D
-      break;
-    case 4: // reading volume 
-      if (CNs4t1(_key)) { sm.last_state = 4;  TNs4t1(_key); }  // 0..9
-      else { sm.last_state = 4; _clear(); } // * # A..D
-      break;
-    }
-
-    if (debug_mode){ 
+    #ifdef debug_mode
       Serial.println(sm.state);
-    }
-  }
+    #endif
+  } //if (_key)
 }
 
 
@@ -196,14 +198,20 @@ void TNs1t4 () {
 }
 
 void TNs2t1 (char c) {
+  boolean play_state = digitalRead(MP3_STATUS);
+  if(play_state != HIGH){
+    Serial.println("mp3 busy");
+    mp3_stop();
+  };
+  
   switch (c) {
-    case 'A': { glsb = 1000; mp3_play(glsb);}
+    case 'A': { glsb = 1; mp3_play(255,glsb);}
     break;
-    case 'B': { glsb = 2000; mp3_play(glsb);}
+    case 'B': { glsb = 2; mp3_play(255,glsb);}
     break;
-    case 'C': { glsb = 3000; mp3_play(glsb);}
+    case 'C': { glsb = 3; mp3_play(255,glsb);}
     break;
-    case 'D': { glsb = 4000; mp3_play(glsb);}
+    case 'D': { glsb = 4; mp3_play(255,glsb);}
     break;
   }
 
@@ -212,12 +220,19 @@ void TNs2t1 (char c) {
 
 void TNs3t1 () {
   // play sound
-  if (debug_mode){ 
-    Serial.print(glsb + keypadbuffer.toInt());
+  #ifdef debug_mode 
+    Serial.print(glsb);
+    Serial.print("/");
+    Serial.print(keypadbuffer.toInt());
     Serial.print(":");
-  }
+  #endif
 
-  mp3_play(glsb + keypadbuffer.toInt());
+  boolean play_state = digitalRead(MP3_STATUS);
+  if(play_state != HIGH){
+    mp3_stop();
+  };
+
+  mp3_play(keypadbuffer.toInt(),glsb);
   _clear();
 }
 
@@ -229,11 +244,11 @@ void TNs4t1 (char c) {
   // set volume
   if (keypadbuffer.length() < MAX_KEYPAD_BUFFER_LENGTH) keypadbuffer += c;  
   
-  if (debug_mode){ 
+  #ifdef debug_mode 
     Serial.print(keypadbuffer.toInt());
     Serial.print(":");
     Serial.println(map(keypadbuffer.toInt(),0,9,0,30));
-  };
+  #endif
 
   mp3_set_volume (map(keypadbuffer.toInt(),0,9,0,30));
   _clear();
@@ -246,15 +261,22 @@ void _clear ()
   digitalWrite(STATUS_LED, LOW);
 }
 
-void _restartidletimer ()
+void _silentrestartidletimer ()
 {
-  if (idlesm.state > 1) {mp3_play(10+idlesm.state);};
   idlesm.state = IDLE_START;
   for (int8_t i = 0; i < MAX_NUMBER_OF_EVENTS; i++){t.stop(i);};
   t.after(15*1000L,onWaitTooLongForInput);  // wait 15 sec on input
   t.after(5*60*1000L,onIdleWhile);          // 5 min warning on idle
   t.after(10*60*1000L,onIdleLonger);        // 10 min warning on idle
   t.after(15*60*1000L,onIdleTooLong);       // 15 min warning on idle
+}
+
+void _restartidletimer ()
+{
+  if (idlesm.state != IDLE_START) {
+    mp3_play(3+idlesm.state);
+  };
+  _silentrestartidletimer ();
 }
 
 // ===== Timer: no input for too long ==============
@@ -267,52 +289,40 @@ void onWaitTooLongForInput()
 // ===== Timer: no activity handlers ==============
 void onIdleWhile()
 {
-  mp3_play(2);
-  idlesm.state = IDLE_WAITING;
-  _clear ();
+  boolean play_state = digitalRead(MP3_STATUS);
+  if(play_state == HIGH){
+    mp3_play(2);
+    idlesm.state = IDLE_WAITING;
+    _clear ();
+  }
+  else {
+    _silentrestartidletimer ();
+  }
 }
 
 void onIdleLonger()
 {
-  mp3_play(3);
-  idlesm.state = IDLE_NERVOUS;
-  _clear ();
+  boolean play_state = digitalRead(MP3_STATUS);
+  if(play_state == HIGH){
+    mp3_play(3);
+    idlesm.state = IDLE_NERVOUS;
+    _clear ();
+  }
+  else {
+    _silentrestartidletimer ();
+  }
 }
 
 void onIdleTooLong()
 {
-  mp3_play(4);
-  idlesm.state = IDLE_FORGOTTEN;
-  _clear ();
+  boolean play_state = digitalRead(MP3_STATUS);
+  if(play_state == HIGH){
+    mp3_play(4);
+    idlesm.state = IDLE_FORGOTTEN;
+    _clear ();
+  }
+  else {
+    _silentrestartidletimer ();
+  }
 }
 
-/*
-  mp3_play (1);
-  delay (6000);
-  mp3_next ();
-  delay (6000);
-  mp3_prev ();
-  delay (6000);
-  mp3_play (4);
-  delay (6000);
-
-  mp3_play ();    //start play
-  mp3_play (5); //play "mp3/0005.mp3"
-  mp3_next ();    //play next
-  mp3_prev ();    //play previous
-  mp3_set_volume (uint16_t volume); //0~30
-  mp3_set_EQ ();  //0~5
-  mp3_pause ();
-  mp3_stop ();
-  void mp3_get_state ();  //send get state command
-  void mp3_get_volume ();
-  void mp3_get_u_sum ();
-  void mp3_get_tf_sum ();
-  void mp3_get_flash_sum ();
-  void mp3_get_tf_current ();
-  void mp3_get_u_current ();
-  void mp3_get_flash_current ();
-  void mp3_single_loop (boolean state); //set single loop
-  void mp3_DAC (boolean state);
-  void mp3_random_play ();
-*/

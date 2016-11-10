@@ -16,6 +16,7 @@ mp3_set_serial	KEYWORD2
 get_mp3_checksum	KEYWORD2
 mp3_fill_checksum	KEYWORD2
 mp3_play	KEYWORD2
+mp3_play_intercut KEYWORD2
 mp3_next	KEYWORD2
 mp3_prev	KEYWORD2
 mp3_set_volume	KEYWORD2

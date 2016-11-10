@@ -68,7 +68,6 @@ void setup () {
         while (!Serial);
 
         mp3_set_serial (Serial1);	//set Serial1 for DFPlayer-mini mp3 module 
-		delay(1);  //wait 1ms for mp3 module to set volume
         mp3_set_volume (15);
         mp3_get_tf_sum ();
         print_info ();

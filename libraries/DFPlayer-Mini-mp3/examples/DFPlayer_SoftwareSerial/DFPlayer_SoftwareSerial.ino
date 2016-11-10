@@ -45,7 +45,6 @@ void setup () {
 	Serial.begin (9600);
 	mySerial.begin (9600);
 	mp3_set_serial (mySerial);	//set softwareSerial for DFPlayer-mini mp3 module 
-	delay(1);  //wait 1ms for mp3 module to set volume
 	mp3_set_volume (15);
 }
 
