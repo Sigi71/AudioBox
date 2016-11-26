@@ -37,7 +37,7 @@ char keys[rows][columns] = {
 // Keypad digital pins
 uint8_t RowPins[rows] = {2, 3, 4, 5};
 #ifndef analog_keypad
-  uint8_t ColumnPins[columns] =  {6, 7, 8, 12};     // digital pins
+  uint8_t ColumnPins[columns] =  {6, 7, 8, 9};     // digital pins
 #else
   uint8_t ColumnPins[columns] =  {A3, A2, A1, A0};  // analog pins
 #endif
@@ -49,15 +49,20 @@ Keypad keyboard = Keypad( makeKeymap(keys), RowPins, ColumnPins, rows, columns);
 
 // --- MP3 - DFPlayer mini mp3 module
 #define DEFAULT_SOUND_VOLUME 15   // 0..30
+#define IDLE_WARNING_VOLUME_LEVEL 25  
+
 #define MP3_STATUS  9  // pin mp3 status flag LOW means Busy/Playing
+uint8_t act_volume = DEFAULT_SOUND_VOLUME;
+bool idle_volume_active = false;
+
 SoftwareSerial mp3Serial(10, 11); // RX, TX
 
 // =========================== SW modules ========================
-// --- Action, beep timer
+// --- Action timer, beep timer
 Timer t, b;
 
 // --- State machines
-// (SM: STATE: 1-Start,2-SelectMode,3-SelectSound,4-SetVolume TRANSITION: 1-2,2-1,1-3,3-3,3-1,1-4,4-1)
+// (SM: STATE: 1-Start,2-SelectMode,3-SelectSound,4-SetVolume TRANSITION: 1-1,1-2,2-1,1-3,3-3,3-1,1-4,4-1)
 #define SM_START		1
 #define SM_SELECTMODE	2
 #define SM_SELECTSOUND	3 
@@ -84,7 +89,7 @@ uint16_t glsb = 1;        // game legend set base - mp3 file index base - A-1, B
 void setup() {
   // Serial communication 38400 baud
   Serial.begin(38400);
-  Serial.println("------ Speaking game tutorial, Firmware version 0.2");
+  Serial.println("------ Speaking game tutorial, Firmware version 0.3");
 
   Serial.println(">> Status LED...");
   // Pin 13 has an LED connected on most Arduino boards:
@@ -92,11 +97,11 @@ void setup() {
     digitalWrite(STATUS_LED, HIGH);
   Serial.println(">> Status LED Initialized");
 
-//  Serial.println(">> Buzzer...");
+  Serial.println(">> Buzzer...");
   // BUZZER_PIN
-//    pinMode(BUZZER_PIN, OUTPUT);
-//    digitalWrite(BUZZER_PIN, LOW);
-//  Serial.println(">> Buzzer Initialized");
+    pinMode(BUZZER_PIN, OUTPUT);
+    digitalWrite(BUZZER_PIN, LOW);
+  Serial.println(">> Buzzer Initialized");
 
   Serial.println(">> MP3 Player...");
     pinMode(MP3_STATUS, INPUT);
@@ -142,8 +147,9 @@ void loop() {
     // Keypressed-based decision routine
     switch (sm.state){
       case 1: // Initial
-        if (CNs1t2(_key)) { sm.last_state = SM_START;  TNs1t2(); }  // *
-        else if (CNs1t4(_key)) { sm.last_state = SM_START; TNs1t4(); }  // #
+		if (CNs1t1(_key)) { sm.last_state = SM_START; TNs1t1(_key); } // A..D
+        else if (CNs1t2(_key)) { sm.last_state = SM_START;  TNs1t2(); }  // *
+		else if (CNs1t4(_key)) { sm.last_state = SM_START; TNs1t4(); }  // #
         else if (CNs1t3(_key)) { sm.last_state = SM_START; TNs1t3(_key); }  // 0..9
         break;
       case 2: // * reading game legend set base
@@ -155,7 +161,7 @@ void loop() {
         else if (CNs3t1(_key)) { sm.last_state = 3; TNs3t1(); } // #
         else { sm.last_state = 3; _clear(); } // * A..D
         break;
-      case 4: // # reading volume 
+      case 4: // # reading volume setting 
         if (CNs4t1(_key)) { sm.last_state = 4;  TNs4t1(_key); }  // 0..9
         else { sm.last_state = 4; _clear(); } // * # A..D
         break;
@@ -165,6 +171,10 @@ void loop() {
       Serial.println(sm.state);
     #endif
   } //if (_key)
+}
+
+bool CNs1t1(char c) {
+	return (c >= 'A') && (c <= 'D');
 }
 
 
@@ -212,7 +222,12 @@ void TNs1t4 () {
   digitalWrite(STATUS_LED, HIGH);
 }
 
+void TNs1t1(char c) {
+	TNs2t1(c);
+}
+
 void TNs2t1 (char c) {
+	// choose game set
   if(digitalRead(MP3_STATUS) == HIGH){
     mp3_stop();
     delay(50);
@@ -262,7 +277,8 @@ void TNs4t1 (char c) {
     Serial.println(map(keypadbuffer.toInt(),0,9,0,30));
   #endif
 
-  mp3_set_volume (map(keypadbuffer.toInt(),0,9,0,30));
+	act_volume = map(keypadbuffer.toInt(), 0, 9, 0, 30);
+	mp3_set_volume(act_volume);
   _clear();
 }
 
@@ -275,27 +291,38 @@ void _clear ()
 
 void beep ()
 {
-//  digitalWrite(BUZZER_PIN,HIGH);
-  b.after(100,beep_off);
+  beep_on(); 
+  b.after(100, beep_off);
+  b.after(200, beep_on);
+  b.after(300, beep_off);
 }
 
-void beep_off ()
+void beep_on()
 {
-//  digitalWrite(BUZZER_PIN,LOW);  
+	digitalWrite(BUZZER_PIN, HIGH);
+}
+
+void beep_off()
+{
+  digitalWrite(BUZZER_PIN,LOW);  
 }
 
 
 void _restartidletimer ()
 {
   idlesm.state = IDLE_START;
+  if (idle_volume_active){
+	  idle_volume_active = false;
+	  mp3_set_volume(act_volume);
+  }
   for (int8_t i = 0; i < MAX_NUMBER_OF_EVENTS; i++){t.stop(i);};
-  t.after(15*1000L,onWaitTooLongForInput);  // wait 15 sec on input
+  t.after(15*1000L,onWaitTooLongForInput);  // wait 15 sec for input
   t.after(5*60*1000L,onIdleWhile);          // 5 min warning on idle
   t.after(10*60*1000L,onIdleLonger);        // 10 min warning on idle
   t.after(15*60*1000L,onIdleTooLong);       // 15 min warning on idle
 }
 
-// ===== Timer: no input for too long ==============
+// ===== Timer: input timeout ==============
 void onWaitTooLongForInput()
 {
   beep();
@@ -306,7 +333,9 @@ void onWaitTooLongForInput()
 void onIdleWhile()
 {
   if(digitalRead(MP3_STATUS) == HIGH){
-    mp3_play(2);
+	  mp3_set_volume(IDLE_WARNING_VOLUME_LEVEL);
+	  idle_volume_active = true;
+	  mp3_play(2);
     idlesm.state = IDLE_WAITING;
     _clear ();
   }
