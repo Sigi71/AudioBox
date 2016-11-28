@@ -83,7 +83,7 @@ struct StateMachine{
 #define MAX_KEYPAD_BUFFER_LENGTH 3
 
 String keypadbuffer = ""; // input string buffer to read up to 3-digit numbers
-uint16_t glsb = 1;        // game legend set base - mp3 file index base - A-1, B-2, C-3, D-4
+uint16_t glsb = 1;        // game legend set base - mp3 file index base - A-1, B-2, C-3, D-4..99
 
 // =================================== SETUP ====================
 void setup() {
@@ -146,24 +146,24 @@ void loop() {
 
     // Keypressed-based decision routine
     switch (sm.state){
-      case 1: // Initial
-		if (CNs1t1(_key)) { sm.last_state = SM_START; TNs1t1(_key); } // A..D
-        else if (CNs1t2(_key)) { sm.last_state = SM_START;  TNs1t2(); }  // *
-		else if (CNs1t4(_key)) { sm.last_state = SM_START; TNs1t4(); }  // #
-        else if (CNs1t3(_key)) { sm.last_state = SM_START; TNs1t3(_key); }  // 0..9
+	  case SM_START: // Initial
+		  if (CNs1t1(_key)) { sm.last_state = SM_START; TNs1t1(_key); }        // A..D game legend set 1..4 shorcut
+          else if (CNs1t2(_key)) { sm.last_state = SM_START;  TNs1t2(); }      // * set game legend
+		  else if (CNs1t4(_key)) { sm.last_state = SM_START; TNs1t4(); }       // # set volume
+          else if (CNs1t3(_key)) { sm.last_state = SM_START; TNs1t3(_key); }   // 0..9 sound index
         break;
-      case 2: // * reading game legend set base
-        if (CNs2t1(_key)) { sm.last_state = 2; TNs2t1(_key); } // A..D
-        else { sm.last_state = 2; _clear(); } // * # 0..9
+	  case SM_SELECTMODE: // * reading game legend set base
+		  if (CNs2t1(_key)) { sm.last_state = SM_SELECTMODE; TNs2t1(_key); }   // A..D/0..9#
+		  else { sm.last_state = SM_SELECTMODE; _clear(); }                    // *
         break;
-      case 3: // 0..9 reading sound index
-        if (CNs3t3(_key)) { sm.last_state = 3; TNs3t3(_key); } // 0..9
-        else if (CNs3t1(_key)) { sm.last_state = 3; TNs3t1(); } // #
-        else { sm.last_state = 3; _clear(); } // * A..D
+	  case SM_SELECTSOUND: // 0..9 reading sound index
+		  if (CNs3t3(_key)) { sm.last_state = SM_SELECTSOUND; TNs3t3(_key); }  // 0..9
+		  else if (CNs3t1(_key)) { sm.last_state = SM_SELECTSOUND; TNs3t1(); } // #
+		  else { sm.last_state = SM_SELECTSOUND; _clear(); }                   // * A..D
         break;
-      case 4: // # reading volume setting 
-        if (CNs4t1(_key)) { sm.last_state = 4;  TNs4t1(_key); }  // 0..9
-        else { sm.last_state = 4; _clear(); } // * # A..D
+	  case SM_SETVOLUME: // # reading volume setting 
+		  if (CNs4t1(_key)) { sm.last_state = SM_SETVOLUME;  TNs4t1(_key); }  // 0..9
+		  else { sm.last_state = SM_SETVOLUME; _clear(); }                    // * # A..D
         break;
     }
 
@@ -191,7 +191,7 @@ bool CNs1t4 (char c) {
 }
 
 bool CNs2t1 (char c) {
-  return (c >= 'A') && (c <= 'D');
+	return ((c >= 'A') && (c <= 'D')) || ((c >= '0') && (c <= '9')) || (c == '#');
 }
 
 bool CNs3t1 (char c) {
@@ -227,23 +227,33 @@ void TNs1t1(char c) {
 }
 
 void TNs2t1 (char c) {
-	// choose game set
+  // choose game set
   if(digitalRead(MP3_STATUS) == HIGH){
     mp3_stop();
     delay(50);
   }
   switch (c) {
-    case 'A': { glsb = 1; mp3_play(255,glsb);}
+  case 'A': { glsb = 1; mp3_play(255, glsb); _clear(); }
     break;
-    case 'B': { glsb = 2; mp3_play(255,glsb);}
+  case 'B': { glsb = 2; mp3_play(255, glsb); _clear(); }
     break;
-    case 'C': { glsb = 3; mp3_play(255,glsb);}
+  case 'C': { glsb = 3; mp3_play(255, glsb); _clear(); }
     break;
-    case 'D': { glsb = 4; mp3_play(255,glsb);}
+  case 'D': { glsb = 4; mp3_play(255, glsb); _clear(); }
     break;
-  }
-
-  _clear();
+  case '#': { 
+				glsb = keypadbuffer.toInt(); 
+				if (glsb < 100) {
+					mp3_play(255, glsb);
+				}
+				else {
+					mp3_play(5); //err
+				}
+				_clear();
+			 }
+	break;
+  default: { if (keypadbuffer.length() < MAX_KEYPAD_BUFFER_LENGTH) keypadbuffer += c; }
+  } 
 }
 
 void TNs3t1 () {
@@ -293,8 +303,6 @@ void beep ()
 {
   beep_on(); 
   b.after(100, beep_off);
-  b.after(200, beep_on);
-  b.after(300, beep_off);
 }
 
 void beep_on()
