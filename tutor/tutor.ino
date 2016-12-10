@@ -103,7 +103,7 @@ void setup() {
     delay(1);  //wait 1ms for mp3 module to set volume
     mp3_set_volume (DEFAULT_SOUND_VOLUME);
 	delay(1);  //wait 1ms for mp3 module to recover
-	mp3_play(9);
+	mp3_play(1);
   Serial.println(">> MP3 Player Initialized");
 
   Serial.println(">> Core...");
@@ -309,6 +309,7 @@ void _restartidletimer ()
 // ===== Timer: input timeout ==============
 void onWaitTooLongForInput()
 {
+	mp3_play_intercut(1);
   _clear ();
 }
 
