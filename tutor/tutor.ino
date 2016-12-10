@@ -1,8 +1,9 @@
 // === Game tutorial machine - LEGEND TO PLAY
 // --- Usage - Keypad actions ------------------------------------------------------
-// press * and then press A..D to choose game legend set
+// press A..D to quickly choose game legend set
+// press * and then repeatedly 0..9 to enter up to 2-digit number (99 max) followed by # to choose game legend set
 // press # and then press 0..9 to set sound volume level
-// press repeatedly 0..9 to enter up to 3-digit number folowed by # to choose legend
+// press repeatedly 0..9 to enter up to 3-digit number (255 max) followed by # to choose legend
 // ---------------------------------------------------------------------------------
 
 // libraries
@@ -17,9 +18,6 @@
 
 // --- LED - Integrated LED diode
 #define STATUS_LED LED_BUILTIN
-
-// --- BUZER - Beep module
-#define BUZZER_PIN 12  //Digital pin. HIGH mean sound
 
 // --- Keypad 4x4
 #define analog_keypad
@@ -97,12 +95,6 @@ void setup() {
     digitalWrite(STATUS_LED, HIGH);
   Serial.println(">> Status LED Initialized");
 
-  Serial.println(">> Buzzer...");
-  // BUZZER_PIN
-    pinMode(BUZZER_PIN, OUTPUT);
-    digitalWrite(BUZZER_PIN, LOW);
-  Serial.println(">> Buzzer Initialized");
-
   Serial.println(">> MP3 Player...");
     pinMode(MP3_STATUS, INPUT);
   // MP3 serial communication setup
@@ -110,6 +102,8 @@ void setup() {
     mp3_set_serial (mp3Serial); //set Serial for DFPlayer-mini mp3 module
     delay(1);  //wait 1ms for mp3 module to set volume
     mp3_set_volume (DEFAULT_SOUND_VOLUME);
+	delay(1);  //wait 1ms for mp3 module to recover
+	mp3_play(9);
   Serial.println(">> MP3 Player Initialized");
 
   Serial.println(">> Core...");
@@ -141,7 +135,6 @@ void loop() {
       Serial.print("->");
     #endif
 
-    beep();
     _restartidletimer();     // restart idle timer 
 
     // Keypressed-based decision routine
@@ -299,23 +292,6 @@ void _clear ()
   digitalWrite(STATUS_LED, LOW);
 }
 
-void beep ()
-{
-  beep_on(); 
-  b.after(100, beep_off);
-}
-
-void beep_on()
-{
-	digitalWrite(BUZZER_PIN, HIGH);
-}
-
-void beep_off()
-{
-  digitalWrite(BUZZER_PIN,LOW);  
-}
-
-
 void _restartidletimer ()
 {
   idlesm.state = IDLE_START;
@@ -333,7 +309,6 @@ void _restartidletimer ()
 // ===== Timer: input timeout ==============
 void onWaitTooLongForInput()
 {
-  beep();
   _clear ();
 }
 
@@ -344,8 +319,8 @@ void onIdleWhile()
 	  mp3_set_volume(IDLE_WARNING_VOLUME_LEVEL);
 	  idle_volume_active = true;
 	  mp3_play(2);
-    idlesm.state = IDLE_WAITING;
-    _clear ();
+      idlesm.state = IDLE_WAITING;
+      _clear ();
   }
   else {
     _restartidletimer ();
