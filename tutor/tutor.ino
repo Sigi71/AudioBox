@@ -56,7 +56,7 @@ bool idle_volume_active = false;
 SoftwareSerial mp3Serial(10, 11); // RX, TX
 
 // =========================== SW modules ========================
-// --- Action timer, beep timer
+// --- Action timer, battery timer
 Timer t, b;
 
 // --- State machines
@@ -109,6 +109,7 @@ void setup() {
   Serial.println(">> Core...");
     sm.state = SM_START;
     idlesm.state = IDLE_START;
+    b.every(5*60*1000L,oncheckBatteryLevel);  // 5 min low battery warning
   Serial.println(">> Core Initialized");
 
   digitalWrite(STATUS_LED, LOW);
@@ -291,6 +292,43 @@ void _clear ()
   keypadbuffer = "";
   digitalWrite(STATUS_LED, LOW);
 }
+
+
+// ========================= BATTERY LEVEL =========================
+
+void oncheckBatteryLevel(){
+  if (BatteryVcc() <= 7,4) {
+    mp3_play_intercut(2);
+  }
+}
+
+float BatteryVcc() {
+  float Vcc=readVcc(); //hodnota v mV
+  Vcc=ceil(Vcc/1000);  //hodnota ve V
+  return Vcc; 
+}
+
+long readVcc() {
+	#if defined(__AVR_ATmega32U4__) || defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
+	ADMUX = _BV(REFS0) | _BV(MUX4) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
+	#elif defined (__AVR_ATtiny24__) || defined(__AVR_ATtiny44__) || defined(__AVR_ATtiny84__)
+	ADMUX = _BV(MUX5) | _BV(MUX0);
+	#elif defined (__AVR_ATtiny25__) || defined(__AVR_ATtiny45__) || defined(__AVR_ATtiny85__)
+	ADMUX = _BV(MUX3) | _BV(MUX2);
+	#else
+	ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
+	#endif
+	delay(2);
+	ADCSRA |= _BV(ADSC);
+	while (bit_is_set(ADCSRA,ADSC));
+	uint8_t low = ADCL;
+	uint8_t high = ADCH;
+	long result = (high<<8) | low;
+	result = 1125300L / result; // Výpoèet Vcc (mV); 1125300 = 1.1*1023*1000
+	return result;
+}
+
+// ========================= TIMER ============================
 
 void _restartidletimer ()
 {
