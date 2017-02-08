@@ -102,8 +102,8 @@ void setup() {
     mp3_set_serial (mp3Serial); //set Serial for DFPlayer-mini mp3 module
     delay(1);  //wait 1ms for mp3 module to set volume
     mp3_set_volume (DEFAULT_SOUND_VOLUME);
-	delay(1);  //wait 1ms for mp3 module to recover
-	mp3_play(1);
+	  delay(10);  //wait 1ms for mp3 module to recover
+	  mp3_play(1);
   Serial.println(">> MP3 Player Initialized");
 
   Serial.println(">> Core...");
@@ -135,8 +135,6 @@ void loop() {
       Serial.print("->");
     #endif
 
-    _restartidletimer();     // restart idle timer 
-
     // Keypressed-based decision routine
     switch (sm.state){
 	  case SM_START: // Initial
@@ -159,6 +157,8 @@ void loop() {
 		  else { sm.last_state = SM_SETVOLUME; _clear(); }                    // * # A..D
         break;
     }
+
+	_restartidletimer();     // restart idle timer 
 
     #ifdef debug_mode
       Serial.println(sm.state);
@@ -300,7 +300,10 @@ void _restartidletimer ()
 	  mp3_set_volume(act_volume);
   }
   for (int8_t i = 0; i < MAX_NUMBER_OF_EVENTS; i++){t.stop(i);};
-  t.after(15*1000L,onWaitTooLongForInput);  // wait 15 sec for input
+
+  if (sm.state != SM_START) {
+    t.after(15 * 1000L, onWaitTooLongForInput);  // set 15 sec input timeout
+  }
   t.after(5*60*1000L,onIdleWhile);          // 5 min warning on idle
   t.after(10*60*1000L,onIdleLonger);        // 10 min warning on idle
   t.after(15*60*1000L,onIdleTooLong);       // 15 min warning on idle
