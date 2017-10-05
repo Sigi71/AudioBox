@@ -17,7 +17,7 @@
 // =========================== HW peripherals ========================
 
 // --- LED - Integrated LED diode
-#define STATUS_LED LED_BUILTIN
+#define STATUS_LED_PIN_PIN LED_BUILTIN
 
 // --- Keypad 4x4
 #define analog_keypad
@@ -49,7 +49,7 @@ Keypad keyboard = Keypad( makeKeymap(keys), RowPins, ColumnPins, rows, columns);
 #define DEFAULT_SOUND_VOLUME 15   // 0..30
 #define IDLE_WARNING_VOLUME_LEVEL 25  
 
-#define MP3_STATUS  9  // pin mp3 status flag LOW means Busy/Playing
+#define MP3_STATUS_PIN  9  // pin mp3 status flag LOW means Busy/Playing
 uint8_t act_volume = DEFAULT_SOUND_VOLUME;
 bool idle_volume_active = false;
 
@@ -91,12 +91,12 @@ void setup() {
 
   Serial.println(">> Status LED...");
   // Pin 13 has an LED connected on most Arduino boards:
-    pinMode(STATUS_LED, OUTPUT);
-    digitalWrite(STATUS_LED, HIGH);
+    pinMode(STATUS_LED_PIN, OUTPUT);
+    digitalWrite(STATUS_LED_PIN, HIGH);
   Serial.println(">> Status LED Initialized");
 
   Serial.println(">> MP3 Player...");
-    pinMode(MP3_STATUS, INPUT);
+    pinMode(MP3_STATUS_PIN, INPUT);
   // MP3 serial communication setup
     mp3Serial.begin(9600);
     mp3_set_serial (mp3Serial); //set Serial for DFPlayer-mini mp3 module
@@ -112,7 +112,7 @@ void setup() {
     b.every(5*60*1000L,oncheckBatteryLevel);  // 5 min low battery warning
   Serial.println(">> Core Initialized");
 
-  digitalWrite(STATUS_LED, LOW);
+  digitalWrite(STATUS_LED_PIN, LOW);
 }
 
 
@@ -171,7 +171,6 @@ bool CNs1t1(char c) {
 	return (c >= 'A') && (c <= 'D');
 }
 
-
 bool CNs1t2 (char c) {
   return c == '*';
 }
@@ -202,18 +201,18 @@ bool CNs4t1 (char c) {
 
 void TNs1t2 () {
   sm.state = SM_SELECTMODE;
-  digitalWrite(STATUS_LED, HIGH);
+  digitalWrite(STATUS_LED_PIN, HIGH);
 }
 
 void TNs1t3 (char c) {
   keypadbuffer += c;
   sm.state = SM_SELECTSOUND;
-  digitalWrite(STATUS_LED, HIGH);
+  digitalWrite(STATUS_LED_PIN, HIGH);
 }
 
 void TNs1t4 () {
   sm.state = SM_SETVOLUME;
-  digitalWrite(STATUS_LED, HIGH);
+  digitalWrite(STATUS_LED_PIN, HIGH);
 }
 
 void TNs1t1(char c) {
@@ -222,7 +221,7 @@ void TNs1t1(char c) {
 
 void TNs2t1 (char c) {
   // choose game set
-  if(digitalRead(MP3_STATUS) == HIGH){
+  if(digitalRead(MP3_STATUS_PIN) == HIGH){
     mp3_stop();
     delay(50);
   }
@@ -259,7 +258,7 @@ void TNs3t1 () {
     Serial.print(":");
   #endif
 
-  if(digitalRead(MP3_STATUS) == HIGH){
+  if(digitalRead(MP3_STATUS_PIN) == HIGH){
     mp3_stop();
     delay(50);
   }
@@ -290,7 +289,7 @@ void _clear ()
 {
   sm.state = SM_START;
   keypadbuffer = "";
-  digitalWrite(STATUS_LED, LOW);
+  digitalWrite(STATUS_LED_PIN, LOW);
 }
 
 
@@ -357,7 +356,7 @@ void onWaitTooLongForInput()
 // ===== Timer: no activity handlers ==============
 void onIdleWhile()
 {
-  if(digitalRead(MP3_STATUS) == HIGH){
+  if(digitalRead(MP3_STATUS_PIN) == HIGH){
 	  mp3_set_volume(IDLE_WARNING_VOLUME_LEVEL);
 	  idle_volume_active = true;
 	  mp3_play(2);
@@ -371,7 +370,7 @@ void onIdleWhile()
 
 void onIdleLonger()
 {
-  if(digitalRead(MP3_STATUS) == HIGH){
+  if(digitalRead(MP3_STATUS_PIN) == HIGH){
     mp3_play(3);
     idlesm.state = IDLE_NERVOUS;
     _clear ();
@@ -383,7 +382,7 @@ void onIdleLonger()
 
 void onIdleTooLong()
 {
-  if(digitalRead(MP3_STATUS) == HIGH){
+  if(digitalRead(MP3_STATUS_PIN) == HIGH){
     mp3_play(4);
     idlesm.state = IDLE_FORGOTTEN;
     _clear ();
