@@ -1,7 +1,7 @@
-// === Game tutorial machine - LEGEND TO PLAY
+// === Game SFX machine - SOUNDS TO PLAY
 // --- Usage - Keypad actions ------------------------------------------------------
-// press A..D to quickly choose game legend set
-// press * and then repeatedly 0..9 to enter up to 2-digit number (99 max) followed by # to choose game legend set
+// press A..D to quickly choose sound set
+// press * and then repeatedly 0..9 to enter up to 2-digit number (99 max) followed by # to choose sound set
 // press # and then press 0..9 to set sound volume level
 // press repeatedly 0..9 to enter up to 3-digit number (255 max) followed by # to choose legend
 // ---------------------------------------------------------------------------------
@@ -11,13 +11,14 @@
 #include <Timer.h>               //http://playground.arduino.cc/Code/Timer
 #include <SoftwareSerial.h>      //http://arduino.cc/en/Reference/SoftwareSerial (included with Arduino IDE)
 #include <DFPlayer_Mini_Mp3.h>   //http://github.com/DFRobot/DFPlayer-Mini-mp3
+#include <EEPROM.h>              //(included with Arduino IDE)
 
 //#define debug_mode
 
 // =========================== HW peripherals ========================
 
 // --- LED - Integrated LED diode
-#define STATUS_LED_PIN_PIN LED_BUILTIN
+#define STATUS_LED_PIN LED_BUILTIN
 
 // --- Keypad 4x4
 #define analog_keypad
@@ -81,7 +82,7 @@ struct StateMachine{
 #define MAX_KEYPAD_BUFFER_LENGTH 3
 
 String keypadbuffer = ""; // input string buffer to read up to 3-digit numbers
-uint16_t glsb = 1;        // game legend set base - mp3 file index base - A-1, B-2, C-3, D-4..99
+uint16_t glsb = 1;        // current base - mp3 file folder - A-1, B-2, C-3, D-4..99
 
 // =================================== SETUP ====================
 void setup() {
@@ -103,13 +104,18 @@ void setup() {
     delay(1);  //wait 1ms for mp3 module to set volume
     mp3_set_volume (DEFAULT_SOUND_VOLUME);
 	  delay(10);  //wait 1ms for mp3 module to recover
-	  mp3_play(1);
+	  sound_syswelcome();
   Serial.println(">> MP3 Player Initialized");
 
   Serial.println(">> Core...");
     sm.state = SM_START;
-    idlesm.state = IDLE_START;
-    b.every(5*60*1000L,oncheckBatteryLevel);  // 5 min low battery warning
+    idlesm.state = IDLE_START; 
+
+    #ifdef debug_mode
+      b.every(5*1000L,oncheckBatteryLevel);  // 5 sec low battery warning
+    #else
+      b.every(5*60*1000L,oncheckBatteryLevel);  // 5 min low battery warning
+    #endif
   Serial.println(">> Core Initialized");
 
   digitalWrite(STATUS_LED_PIN, LOW);
@@ -136,26 +142,27 @@ void loop() {
       Serial.print("->");
     #endif
 
-    // Keypressed-based decision routine
+    // Keypressed-based decision machine
+
     switch (sm.state){
 	  case SM_START: // Initial
 		  if (CNs1t1(_key)) { sm.last_state = SM_START; TNs1t1(_key); }        // A..D game legend set 1..4 shorcut
-          else if (CNs1t2(_key)) { sm.last_state = SM_START;  TNs1t2(); }      // * set game legend
-		  else if (CNs1t4(_key)) { sm.last_state = SM_START; TNs1t4(); }       // # set volume
-          else if (CNs1t3(_key)) { sm.last_state = SM_START; TNs1t3(_key); }   // 0..9 sound index
+      else if (CNs1t2(_key)) { sm.last_state = SM_START;  TNs1t2(); }      // * -> SM_SELECTMODE:
+		  else if (CNs1t4(_key)) { sm.last_state = SM_START; TNs1t4(); }       // # -> SM_SETVOLUME:
+      else if (CNs1t3(_key)) { sm.last_state = SM_START; TNs1t3(_key); }   // 0..9 -> SM_SELECTSOUND:
         break;
-	  case SM_SELECTMODE: // * reading game legend set base
+	  case SM_SELECTMODE: // * reading base
 		  if (CNs2t1(_key)) { sm.last_state = SM_SELECTMODE; TNs2t1(_key); }   // A..D/0..9#
-		  else { sm.last_state = SM_SELECTMODE; _clear(); }                    // *
+		  else { sm.last_state = SM_SELECTMODE; _clear(); }                    // * -> SM_START:
         break;
 	  case SM_SELECTSOUND: // 0..9 reading sound index
 		  if (CNs3t3(_key)) { sm.last_state = SM_SELECTSOUND; TNs3t3(_key); }  // 0..9
 		  else if (CNs3t1(_key)) { sm.last_state = SM_SELECTSOUND; TNs3t1(); } // #
-		  else { sm.last_state = SM_SELECTSOUND; _clear(); }                   // * A..D
+		  else { sm.last_state = SM_SELECTSOUND; _clear(); }                   // * A..D -> SM_START:
         break;
 	  case SM_SETVOLUME: // # reading volume setting 
 		  if (CNs4t1(_key)) { sm.last_state = SM_SETVOLUME;  TNs4t1(_key); }  // 0..9
-		  else { sm.last_state = SM_SETVOLUME; _clear(); }                    // * # A..D
+		  else { sm.last_state = SM_SETVOLUME; _clear(); }                    // * # A..D -> SM_START:
         break;
     }
 
@@ -166,6 +173,8 @@ void loop() {
     #endif
   } //if (_key)
 }
+
+// ============================ MAIN STATE MACHINE =========================== 
 
 bool CNs1t1(char c) {
 	return (c >= 'A') && (c <= 'D');
@@ -200,6 +209,7 @@ bool CNs4t1 (char c) {
 }
 
 void TNs1t2 () {
+  sound_stop();
   sm.state = SM_SELECTMODE;
   digitalWrite(STATUS_LED_PIN, HIGH);
 }
@@ -220,27 +230,25 @@ void TNs1t1(char c) {
 }
 
 void TNs2t1 (char c) {
-  // choose game set
-  if(digitalRead(MP3_STATUS_PIN) == HIGH){
-    mp3_stop();
-    delay(50);
-  }
+  // choose sound library
+  sound_stop();
+  
   switch (c) {
-  case 'A': { glsb = 1; mp3_play(255, glsb); _clear(); }
+  case 'A': { glsb = 1; sound_libraryenter(glsb); _clear(); }
     break;
-  case 'B': { glsb = 2; mp3_play(255, glsb); _clear(); }
+  case 'B': { glsb = 2; sound_libraryenter(glsb); _clear(); }
     break;
-  case 'C': { glsb = 3; mp3_play(255, glsb); _clear(); }
+  case 'C': { glsb = 3; sound_libraryenter(glsb); _clear(); }
     break;
-  case 'D': { glsb = 4; mp3_play(255, glsb); _clear(); }
+  case 'D': { glsb = 4; sound_libraryenter(glsb); _clear(); }
     break;
   case '#': { 
 				glsb = keypadbuffer.toInt(); 
 				if (glsb < 100) {
-					mp3_play(255, glsb);
+					sound_libraryenter(glsb);
 				}
 				else {
-					mp3_play(5); //err
+					sound_syserror(); //err
 				}
 				_clear();
 			 }
@@ -258,11 +266,7 @@ void TNs3t1 () {
     Serial.print(":");
   #endif
 
-  if(digitalRead(MP3_STATUS_PIN) == HIGH){
-    mp3_stop();
-    delay(50);
-  }
-  mp3_play(keypadbuffer.toInt(),glsb);
+  sound_libraryplayitem(keypadbuffer.toInt(),glsb);
   _clear();
 }
 
@@ -292,12 +296,66 @@ void _clear ()
   digitalWrite(STATUS_LED_PIN, LOW);
 }
 
+// ========================= SOUND PLAYBACK =======================
+
+void sound_stop(){
+  if(sound_isbusy()){
+    mp3_stop();
+    delay(50);
+  }
+}
+
+bool sound_isbusy(){
+  return (digitalRead(MP3_STATUS_PIN) == LOW);
+}
+ 
+void sound_syswelcome(){
+  mp3_play(1);
+}
+
+void sound_syserror(){
+  sound_stop();
+  mp3_play(5);
+}
+
+void sound_sysinputtimeout(){
+  mp3_play_intercut(1);
+}
+
+void sound_libraryenter(uint16_t lib){
+  sound_stop();
+  mp3_play(255, lib);
+  b.after(2*1000L,onLibraryWelcome);          //2 sec delay for library enter sound 
+}
+
+void sound_librarywelcome(uint16_t lib){
+  sound_stop();
+  mp3_play(254, lib);
+}
+
+void sound_libraryplayitem(uint16_t i, uint16_t lib){
+  sound_stop();
+  mp3_play(i, lib);
+}
+
+void sound_syslowbattery(){
+  mp3_play_intercut(2);
+}
+
+void onLibraryWelcome(){
+  mp3_play(254, glsb); 
+}
 
 // ========================= BATTERY LEVEL =========================
 
 void oncheckBatteryLevel(){
-  if (BatteryVcc() <= 7,4) {
-    mp3_play_intercut(2);
+  if (BatteryVcc() < 7.3) {
+    #ifdef debug_mode
+      Serial.print("Critical battery level detected: ");
+      Serial.println(BatteryVcc());
+    #else
+      //sound_syslowbattery();
+    #endif
   }
 }
 
@@ -323,7 +381,6 @@ long readVcc() {
 	uint8_t low = ADCL;
 	uint8_t high = ADCH;
 	long result = (high<<8) | low;
-	result = 1125300L / result; // Výpoèet Vcc (mV); 1125300 = 1.1*1023*1000
 	return result;
 }
 
@@ -339,7 +396,7 @@ void _restartidletimer ()
   for (int8_t i = 0; i < MAX_NUMBER_OF_EVENTS; i++){t.stop(i);};
 
   if (sm.state != SM_START) {
-    t.after(15 * 1000L, onWaitTooLongForInput);  // set 15 sec input timeout
+    t.after(10 * 1000L, onWaitTooLongForInput);  // set 15 sec input timeout
   }
   t.after(5*60*1000L,onIdleWhile);          // 5 min warning on idle
   t.after(10*60*1000L,onIdleLonger);        // 10 min warning on idle
@@ -349,14 +406,14 @@ void _restartidletimer ()
 // ===== Timer: input timeout ==============
 void onWaitTooLongForInput()
 {
-	mp3_play_intercut(1);
+  sound_sysinputtimeout();
   _clear ();
 }
 
 // ===== Timer: no activity handlers ==============
 void onIdleWhile()
 {
-  if(digitalRead(MP3_STATUS_PIN) == HIGH){
+  if(!sound_isbusy()){
 	  mp3_set_volume(IDLE_WARNING_VOLUME_LEVEL);
 	  idle_volume_active = true;
 	  mp3_play(2);
@@ -370,7 +427,7 @@ void onIdleWhile()
 
 void onIdleLonger()
 {
-  if(digitalRead(MP3_STATUS_PIN) == HIGH){
+  if(!sound_isbusy()){
     mp3_play(3);
     idlesm.state = IDLE_NERVOUS;
     _clear ();
@@ -382,7 +439,7 @@ void onIdleLonger()
 
 void onIdleTooLong()
 {
-  if(digitalRead(MP3_STATUS_PIN) == HIGH){
+  if(!sound_isbusy()){
     mp3_play(4);
     idlesm.state = IDLE_FORGOTTEN;
     _clear ();
