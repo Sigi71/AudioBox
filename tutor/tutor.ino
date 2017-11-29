@@ -1,9 +1,9 @@
 // === Game SFX machine - SOUNDS TO PLAY
 // --- Usage - Keypad actions ------------------------------------------------------
-// press A..D to quickly choose sound set
-// press * and then repeatedly 0..9 to enter up to 2-digit number (99 max) followed by # to choose sound set
+// press A..D to quickly choose sound bank
+// press * and then repeatedly 0..9 to enter up to 2-digit number (99 max) followed by # to choose sound bank
 // press # and then press 0..9 to set sound volume level
-// press repeatedly 0..9 to enter up to 3-digit number (255 max) followed by # to choose legend
+// press repeatedly 0..9 to enter up to 3-digit number (255 max) followed by # to choose sound in active bank
 // ---------------------------------------------------------------------------------
 
 // libraries
@@ -96,8 +96,9 @@ struct StateMachine{
 // --- MP3 - DFPlayer mini mp3 module
 #define MAX_VOLUME_LEVEL 30
 #define DEFAULT_SOUND_VOLUME 15   // 0..30
-#define SYS_WARNING_VOLUME_LEVEL 25  
+#define SYS_WARNING_VOLUME_LEVEL 20  // 0..30
 
+volatile bool mp3_status_changed = false;
 uint8_t act_volume = DEFAULT_SOUND_VOLUME;
 bool sys_volume_level_active = false;
 
@@ -106,7 +107,7 @@ void setup() {
   // Serial communication 38400 baud
   Serial.begin(38400);
   Serial.println(">> Serial communication Initialized");
-  Serial.println("------ Speaking library, Firmware version 0.6");
+  Serial.println("------ Speaking library, Firmware version 0.7");
 
   Serial.println(">> Status LED...");
   // Pin 13 has an LED connected on most Arduino boards:
@@ -119,16 +120,18 @@ void setup() {
   // MP3 serial communication setup
     mp3Serial.begin(9600);
     mp3_set_serial (mp3Serial); //set Serial for DFPlayer-mini mp3 module
-    delay(1);  //wait 1ms for mp3 module to set volume
+    delay(1);  //wait 1ms for mp3 module to recover
     e_InitializeVolumeMemory();
     mp3_set_volume (e_readVolume());
     delay(10);  //wait 10ms for mp3 module to recover
-    sound_syswelcome();
+  	sound_syswelcome();
+    attachInterrupt(digitalPinToInterrupt(MP3_STATUS_PIN), onSoundPlayingStoped, RISING);
   Serial.println(">> MP3 Player Initialized");
 
   Serial.println(">> Core...");
     analogReference(INTERNAL); // use the internal ~1.1volt reference  | change (INTERNAL) to (INTERNAL1V1) for a Mega
     b.after(5*1000L,oncheckBatteryLevel);
+
   #ifdef debug_mode
     b.every(5*1000L,oncheckBatteryLevel);  // 5 sec low battery warning
   #else
@@ -152,6 +155,12 @@ void loop() {
 
   // read pressed key from keypad
   char _key = keyboard.getKey();
+
+  // check sound activity
+  if (mp3_status_changed){
+    mp3_status_changed = false;
+	_restartidletimer();  // sound plaing stopped or start. restart idle timer
+  }
 
   // pressed key processing
   if (_key){
@@ -189,7 +198,7 @@ void loop() {
         break;
     }
 
-    _restartidletimer();     // restart idle timer 
+    _restartidletimer();     // �ome key pressed. user active. restart idle timer 
 
     #ifdef debug_mode
       Serial.println(sm.state);
@@ -394,7 +403,7 @@ void _restart ()
 void sound_stop(){
   if(sound_isbusy()){
     mp3_stop();
-    delay(50);
+    delay(10);
   }
 }
 
@@ -452,6 +461,7 @@ void sound_setsysvolumelevel(){
 
 void oncheckBatteryLevel(){
   float batteryLevel = readVin();
+
   Serial.print("Battery Vin: ");
   Serial.println(batteryLevel);
 
@@ -482,9 +492,6 @@ float readVin() {
 
   Vin = (total / 64) * magic_const; // convert readings to volt
  
-  Serial.print("Current Vin: ");
-  Serial.println(Vin);
-
   return Vin; 
 }
 
@@ -513,6 +520,7 @@ void _restartidletimer ()
   if (sm.state != SM_START) {
     t.after(10 * 1000L, onWaitTooLongForInput);  // set 10 sec input timeout
   }
+
   t.after(5*60*1000L,onIdleWhile);          // 5 min warning on idle
   t.after(10*60*1000L,onIdleLonger);        // 10 min warning on idle
   t.after(15*60*1000L,onIdleTooLong);       // 15 min warning on idle
@@ -531,8 +539,8 @@ void onIdleWhile()
   if(!sound_isbusy()){
     sound_setsysvolumelevel();
     mp3_play(2);
-      idlesm.state = IDLE_WAITING;
-      _restart ();
+    idlesm.state = IDLE_WAITING;
+    _restart ();
   }
   else {
     _restartidletimer ();
@@ -563,3 +571,7 @@ void onIdleTooLong()
   }
 }
 
+void onSoundPlayingStoped() 
+{
+  mp3_status_changed = true;
+}
