@@ -1,9 +1,19 @@
 // === Game SFX machine - SOUNDS TO PLAY
 // --- Usage - Keypad actions ------------------------------------------------------
 // press A..D to quickly choose sound bank
-// press * and then repeatedly 0..9 to enter up to 2-digit number (99 max) followed by # to choose sound bank
+// press * and then repeatedly 0..9 to enter up to 2-digit number (99 max) followed 
+//       by # to choose sound bank
 // press # and then press 0..9 to set sound volume level
-// press repeatedly 0..9 to enter up to 3-digit number (255 max) followed by # to choose sound in active bank
+// press repeatedly 0..9 to enter up to 3-digit number (255 max) followed by # to 
+//       choose sound in active bank
+// ---------------------------------------------------------------------------------
+// PIN Usage 
+//                  INT INT
+// DIGITAL  TX1 RX1 D02 D03 D04 D05 D06 D07 D08 D09 D10 D11 D12 D13
+//                   X       X   X   X   X           RX  TX
+//
+// ANALOG   A0  A1  A2  A3  A4  A5  A6  A7
+//           X   X   X   X       X
 // ---------------------------------------------------------------------------------
 
 // libraries
@@ -23,8 +33,6 @@
 #define STATUS_LED_PIN LED_BUILTIN
 
 // --- Keypad 4x4
-#define analog_keypad
-
 // Keypad rows and columns
 const byte rows = 4;
 const byte columns = 4;
@@ -35,13 +43,10 @@ char keys[rows][columns] = {
   {'7','8','9','C'},
   {'*','0','#','D'}
 };
-// Keypad digital pins
-uint8_t RowPins[rows] = {2, 3, 4, 5};
-#ifndef analog_keypad
-  uint8_t ColumnPins[columns] =  {6, 7, 8, 9};     // digital pins
-#else
-  uint8_t ColumnPins[columns] =  {A3, A2, A1, A0};  // analog pins
-#endif
+// Keypad pins
+uint8_t RowPins[rows]       = {4, 5, 6, 7};      // digital pins
+uint8_t ColumnPins[columns] = {A3, A2, A1, A0};  // analog pins
+
 // Keypad object
 Keypad keyboard = Keypad( makeKeymap(keys), RowPins, ColumnPins, rows, columns);
 
@@ -49,7 +54,7 @@ Keypad keyboard = Keypad( makeKeymap(keys), RowPins, ColumnPins, rows, columns);
 // RTC external object from DS3232RTC
 
 // --- MP3 - DFPlayer mini mp3 module
-#define MP3_STATUS_PIN  9  // pin mp3 status flag LOW means Busy/Playing
+#define MP3_STATUS_PIN  2  // pin mp3 status flag LOW means Busy/Playing
 SoftwareSerial mp3Serial(10, 11); // RX, TX
 
 // --- Vin analog voltmeter (divider 100k/10k)
@@ -107,7 +112,7 @@ void setup() {
   // Serial communication 38400 baud
   Serial.begin(38400);
   Serial.println(">> Serial communication Initialized");
-  Serial.println("------ Speaking library, Firmware version 0.7");
+  Serial.println("------ Speaking library, Firmware version 0.8");
 
   Serial.println(">> Status LED...");
   // Pin 13 has an LED connected on most Arduino boards:
