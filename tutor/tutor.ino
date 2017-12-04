@@ -1,6 +1,17 @@
-// === Game SFX machine - SOUNDS TO PLAY
+// libraries
+#include <Keypad.h>              //(included with Arduino IDE)
+#include <Timer.h>               //http://playground.arduino.cc/Code/Timer
+#include <SoftwareSerial.h>      //(included with Arduino IDE)
+#include <DFPlayer_Mini_Mp3.h>   //http://github.com/DFRobot/DFPlayer-Mini-mp3
+#include <EEPROM.h>              //(included with Arduino IDE)
+
+//#define debug_mode
+#define BOXAdam 
+
+// === Game SFX machine - SOUNDS TO PLAY ===========================================
+//
 // --- Usage - Keypad actions ------------------------------------------------------
-// press A..D to quickly choose sound bank
+// press A..D to quickly choose sound library(folder)
 // press * and then repeatedly 0..9 to enter up to 2-digit number (99 max) followed 
 //       by # to choose sound bank
 // press # and then press 0..9 to set sound volume level
@@ -10,29 +21,23 @@
 // PIN Usage 
 //                  INT INT
 // DIGITAL  TX1 RX1 D02 D03 D04 D05 D06 D07 D08 D09 D10 D11 D12 D13
-//                   X       X   X   X   X           RX  TX
+//                   X       X   X   X   X          SRX STX
 //
-// ANALOG   A0  A1  A2  A3  A4  A5  A6  A7
-//           X   X   X   X       X
+// ANALOG   A00  A01  A02  A03  A04  A05  A06  A07
+//           X    X    X    X         X
 // ---------------------------------------------------------------------------------
-
-// libraries
-#include <Keypad.h>              //(included with Arduino IDE)
-#include <Timer.h>               //http://playground.arduino.cc/Code/Timer
-#include <SoftwareSerial.h>      //http://arduino.cc/en/Reference/SoftwareSerial (included with Arduino IDE)
-#include <DFPlayer_Mini_Mp3.h>   //http://github.com/DFRobot/DFPlayer-Mini-mp3
-#include <EEPROM.h>              //(included with Arduino IDE)
-
-//#define debug_mode
 
 // ===============================================================
 // ==                      HW peripherals                       ==
 // ===============================================================
 
-// --- LED - Integrated LED diode
+// --- LED - Integrated LED diode --------------------------------
 #define STATUS_LED_PIN LED_BUILTIN
 
-// --- Keypad 4x4
+// --- RTC - real time clock module DS3231 -----------------------
+// RTC external object from DS3232RTC
+
+// --- Keypad 4x4 ------------------------------------------------
 // Keypad rows and columns
 const byte rows = 4;
 const byte columns = 4;
@@ -43,21 +48,28 @@ char keys[rows][columns] = {
   {'7','8','9','C'},
   {'*','0','#','D'}
 };
+
 // Keypad pins
+#ifdef BOXAdam
 uint8_t RowPins[rows]       = {4, 5, 6, 7};      // digital pins
 uint8_t ColumnPins[columns] = {A3, A2, A1, A0};  // analog pins
+#else
+uint8_t RowPins[rows]       = {2, 3, 4, 5};      // digital pins
+uint8_t ColumnPins[columns] = {A3, A2, A1, A0};  // analog pins
+#endif
 
 // Keypad object
 Keypad keyboard = Keypad( makeKeymap(keys), RowPins, ColumnPins, rows, columns);
 
-// --- RTC - real time clock module DS3231
-// RTC external object from DS3232RTC
-
-// --- MP3 - DFPlayer mini mp3 module
-#define MP3_STATUS_PIN  2  // pin mp3 status flag LOW means Busy/Playing
+// --- MP3 - DFPlayer mini mp3 module ----------------------------
 SoftwareSerial mp3Serial(10, 11); // RX, TX
+#ifdef BOXAdam
+#define MP3_STATUS_PIN  2  // pin mp3 status flag LOW means Busy/Playing
+#else
+#define MP3_STATUS_PIN  9  // pin mp3 status flag LOW means Busy/Playing
+#endif
 
-// --- Vin analog voltmeter (divider 100k/10k)
+// --- Vin analog voltmeter (divider 100k/10k) -------------------
 #define VOLTMETER_PIN A5
 const float Aref = 1.18;
 const float magic_const = (110/10 * Aref / 1024);
@@ -66,21 +78,22 @@ const float magic_const = (110/10 * Aref / 1024);
 // ==                       SW modules                          ==
 // ===============================================================
 
-// --- Core
+// --- Core ------------------------------------------------------
 #define MAX_KEYPAD_BUFFER_LENGTH 3
 String keypadbuffer = ""; // input string buffer to read up to 3-digit numbers
-uint16_t glsb = 1;        // current base - mp3 file folder - A-1, B-2, C-3, D-4..99
+uint8_t glsb;             // current base - mp3 file folder - A-1, B-2, C-3, D-4..99
 
-const int E_ADDR_SIGNATURE = 0;
-const int E_ADDR_PRIMARY_VOLUME_MEMORY=1;
-const int E_ADDR_SECONDARY_VOLUME_MEMORY=2;
+const int E_ADDR_SIGNATURE               = 0;
+const int E_ADDR_PRIMARY_VOLUME_MEMORY   = 1;
+const int E_ADDR_SECONDARY_VOLUME_MEMORY = 2;
+const int E_ADDR_LAST_LIBRARY            = 3;
 
-const float MINIMUM_BATTERY_LEVEL = 6.2;
+const float MINIMUM_BATTERY_LEVEL = 6.2;  // low battery voltage limit
 
-// --- Action timer, battery timer
+// --- Action timer, battery timer -------------------------------
 Timer t, b;
 
-// --- State machines
+// --- State machines --------------------------------------------
 // (SM: STATE: 1-Start,2-SelectMode,3-SelectSound,4-SetVolume TRANSITION: 1-1,1-2,2-1,1-3,3-3,3-1,1-4,4-1)
 #define SM_START    1
 #define SM_SELECTMODE 2
@@ -98,7 +111,7 @@ struct StateMachine{
   uint8_t last_state;
 } sm, idlesm;
 
-// --- MP3 - DFPlayer mini mp3 module
+// --- MP3 - DFPlayer mini mp3 module ----------------------------
 #define MAX_VOLUME_LEVEL 30
 #define DEFAULT_SOUND_VOLUME 15   // 0..30
 #define SYS_WARNING_VOLUME_LEVEL 20  // 0..30
@@ -107,50 +120,56 @@ volatile bool mp3_status_changed = false;
 uint8_t act_volume = DEFAULT_SOUND_VOLUME;
 bool sys_volume_level_active = false;
 
-// =================================== SETUP ===================================
+// ===============================================================
+// ==                      S E T U P                            ==
+// ===============================================================
 void setup() {
   // Serial communication 38400 baud
   Serial.begin(38400);
   Serial.println(">> Serial communication Initialized");
-  Serial.println("------ Speaking library, Firmware version 0.8");
+  Serial.println("------ Speaking library, Firmware version 0.9");
 
-  Serial.println(">> Status LED...");
+  Serial.print(">> Status LED...");
   // Pin 13 has an LED connected on most Arduino boards:
     pinMode(STATUS_LED_PIN, OUTPUT);
     digitalWrite(STATUS_LED_PIN, HIGH);
-  Serial.println(">> Status LED Initialized");
+  Serial.println("Initialized OK");
 
-  Serial.println(">> MP3 Player...");
+  Serial.print(">> MP3 Player...");
     pinMode(MP3_STATUS_PIN, INPUT);
-  // MP3 serial communication setup
-    mp3Serial.begin(9600);
+    mp3Serial.begin(9600);  // MP3 serial communication setup
     mp3_set_serial (mp3Serial); //set Serial for DFPlayer-mini mp3 module
     delay(1);  //wait 1ms for mp3 module to recover
-    e_InitializeVolumeMemory();
     mp3_set_volume (e_readVolume());
     delay(10);  //wait 10ms for mp3 module to recover
   	sound_syswelcome();
-    attachInterrupt(digitalPinToInterrupt(MP3_STATUS_PIN), onSoundPlayingStoped, RISING);
-  Serial.println(">> MP3 Player Initialized");
+    glsb = e_readLastLibrary();  // set last library
 
-  Serial.println(">> Core...");
+  #ifdef BOXAdam
+    attachInterrupt(digitalPinToInterrupt(MP3_STATUS_PIN), onSoundPlayingStoped, RISING);
+  #endif
+    
+  Serial.println("Initialized OK");
+
+  Serial.print(">> Core...");
     analogReference(INTERNAL); // use the internal ~1.1volt reference  | change (INTERNAL) to (INTERNAL1V1) for a Mega
-    b.after(5*1000L,oncheckBatteryLevel);
 
   #ifdef debug_mode
-    b.every(5*1000L,oncheckBatteryLevel);  // 5 sec low battery warning
+    b.every(5*1000L,oncheckBatteryLevel);     // every 5 sec low battery test
   #else
-    b.every(1*60*1000L,oncheckBatteryLevel);  // 5 min low battery warning
+    b.after(5*1000L,oncheckBatteryLevel);     // 5 sec to low battery test
+    b.every(1*60*1000L,oncheckBatteryLevel);  // every 5 min low battery test
   #endif
 
     sm.state = SM_START;
     idlesm.state = IDLE_START; 
-  Serial.println(">> Core Initialized");
-  
+  Serial.println("Initialized OK");
   digitalWrite(STATUS_LED_PIN, LOW);
 }
 
-// =================================== LOOP ===================================
+// ===============================================================
+// ==                        L O O P                            ==
+// ===============================================================
 
 void loop() {
 
@@ -203,7 +222,7 @@ void loop() {
         break;
     }
 
-    _restartidletimer();     // �ome key pressed. user active. restart idle timer 
+    _restartidletimer();     // Some key pressed. user is active. restart idle timer 
 
     #ifdef debug_mode
       Serial.println(sm.state);
@@ -217,13 +236,12 @@ void e_InitializeVolumeMemory(){
   }
 
 uint8_t e_readVolume(){
-  uint8_t value;
-  value = EEPROM.read(E_ADDR_PRIMARY_VOLUME_MEMORY);
+  uint8_t value = EEPROM.read(E_ADDR_PRIMARY_VOLUME_MEMORY);
   if ((value > MAX_VOLUME_LEVEL) || (value == 0)) {
-    value = EEPROM.read(E_ADDR_SECONDARY_VOLUME_MEMORY);
-    if ((value > MAX_VOLUME_LEVEL) || (value == 0)) {
+//    value = EEPROM.read(E_ADDR_SECONDARY_VOLUME_MEMORY);
+//    if ((value > MAX_VOLUME_LEVEL) || (value == 0)) {
       value = DEFAULT_SOUND_VOLUME;  
-      }
+//      }
     }
     act_volume = value;
     return value;
@@ -232,8 +250,22 @@ uint8_t e_readVolume(){
 void e_saveVolume(uint8_t volume){
   if (act_volume != volume){
     EEPROM.write(E_ADDR_PRIMARY_VOLUME_MEMORY, volume); 
-    EEPROM.write(E_ADDR_SECONDARY_VOLUME_MEMORY,volume); 
+//    EEPROM.write(E_ADDR_SECONDARY_VOLUME_MEMORY,volume); 
     act_volume = volume;
+    }
+  }
+
+uint8_t e_readLastLibrary(){
+  uint8_t value = EEPROM.read(E_ADDR_LAST_LIBRARY);
+  if ((value > 100) || (value == 0)) {
+      value = 1;  
+    }
+    return value;
+  }
+
+void e_saveLastLibrary(uint8_t library){
+  if (library != e_readLastLibrary()){
+    EEPROM.write(E_ADDR_LAST_LIBRARY, library); 
     }
   }
     
@@ -309,20 +341,21 @@ void TNs2t1 (char c) {
   sound_stop();
   
   switch (c) {
-  case 'A': { glsb = 1; sound_libraryenter(glsb); _restart (); }
+  case 'A': { glsb = 1; sound_libraryenter(glsb); e_saveLastLibrary(glsb); _restart (); }
     break;
-  case 'B': { glsb = 2; sound_libraryenter(glsb); _restart (); }
+  case 'B': { glsb = 2; sound_libraryenter(glsb); e_saveLastLibrary(glsb); _restart (); }
     break;
-  case 'C': { glsb = 3; sound_libraryenter(glsb); _restart (); }
+  case 'C': { glsb = 3; sound_libraryenter(glsb); e_saveLastLibrary(glsb); _restart (); }
     break;
-  case 'D': { glsb = 4; sound_libraryenter(glsb); _restart (); }
+  case 'D': { glsb = 4; sound_libraryenter(glsb); e_saveLastLibrary(glsb); _restart (); }
     break;
   case '#': { 
         if (keypadbuffer.length() > 0){
-          uint16_t new_glsb = keypadbuffer.toInt(); 
-          if (new_glsb < 100) {
+          uint8_t new_glsb = keypadbuffer.toInt(); 
+          if ((new_glsb < 100) && (new_glsb > 0)) {
             glsb = new_glsb;
             sound_libraryenter(glsb);
+            e_saveLastLibrary(glsb);
           }
           else {
             sound_syserror(); //err
