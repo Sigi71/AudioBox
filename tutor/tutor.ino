@@ -6,7 +6,7 @@
 #include <EEPROM.h>              //(included with Arduino IDE)
 
 //#define debug_mode
-#define BOXAdam 
+//#define interrupt_mode 
 
 // === Game SFX machine - SOUNDS TO PLAY ===========================================
 //
@@ -50,12 +50,12 @@ char keys[rows][columns] = {
 };
 
 // Keypad pins
-#ifdef BOXAdam
-uint8_t RowPins[rows]       = {4, 5, 6, 7};      // digital pins
-uint8_t ColumnPins[columns] = {A3, A2, A1, A0};  // analog pins
+#ifdef interrupt_mode
+  uint8_t RowPins[rows]       = {4, 5, 6, 7};      // digital pins
+  uint8_t ColumnPins[columns] = {A3, A2, A1, A0};  // analog pins
 #else
-uint8_t RowPins[rows]       = {2, 3, 4, 5};      // digital pins
-uint8_t ColumnPins[columns] = {A3, A2, A1, A0};  // analog pins
+  uint8_t RowPins[rows]       = {2, 3, 4, 5};      // digital pins
+  uint8_t ColumnPins[columns] = {A3, A2, A1, A0};  // analog pins
 #endif
 
 // Keypad object
@@ -63,10 +63,10 @@ Keypad keyboard = Keypad( makeKeymap(keys), RowPins, ColumnPins, rows, columns);
 
 // --- MP3 - DFPlayer mini mp3 module ----------------------------
 SoftwareSerial mp3Serial(10, 11); // RX, TX
-#ifdef BOXAdam
-#define MP3_STATUS_PIN  2  // pin mp3 status flag LOW means Busy/Playing
+#ifdef interrupt_mode
+  #define MP3_STATUS_PIN  2  // pin mp3 status flag LOW means Busy/Playing
 #else
-#define MP3_STATUS_PIN  9  // pin mp3 status flag LOW means Busy/Playing
+  #define MP3_STATUS_PIN  9  // pin mp3 status flag LOW means Busy/Playing
 #endif
 
 // --- Vin analog voltmeter (divider 100k/10k) -------------------
@@ -90,8 +90,8 @@ const int E_ADDR_LAST_LIBRARY            = 3;
 
 const float MINIMUM_BATTERY_LEVEL = 6.2;  // low battery voltage limit
 
-// --- Action timer, battery timer -------------------------------
-Timer t, b;
+// --- Action battery timer, key input timer, idle timer ---------------------
+Timer b, k, t;
 
 // --- State machines --------------------------------------------
 // (SM: STATE: 1-Start,2-SelectMode,3-SelectSound,4-SetVolume TRANSITION: 1-1,1-2,2-1,1-3,3-3,3-1,1-4,4-1)
@@ -116,7 +116,10 @@ struct StateMachine{
 #define DEFAULT_SOUND_VOLUME 15   // 0..30
 #define SYS_WARNING_VOLUME_LEVEL 20  // 0..30
 
-volatile bool mp3_status_changed = false;
+#ifdef interrupt_mode
+  volatile bool mp3_status_changed = false;
+#endif
+
 uint8_t act_volume = DEFAULT_SOUND_VOLUME;
 bool sys_volume_level_active = false;
 
@@ -126,16 +129,38 @@ bool sys_volume_level_active = false;
 void setup() {
   // Serial communication 38400 baud
   Serial.begin(38400);
-  Serial.println(">> Serial communication Initialized");
+  Serial.println(">> Serial communication Initialized 38400");
   Serial.println("------ Speaking library, Firmware version 0.9");
 
-  Serial.print(">> Status LED...");
-  // Pin 13 has an LED connected on most Arduino boards:
-    pinMode(STATUS_LED_PIN, OUTPUT);
-    digitalWrite(STATUS_LED_PIN, HIGH);
-  Serial.println("Initialized OK");
+  Serial.println(">> Core initialization");
+    Serial.print("  >> Status LED on PIN ");
+	  Serial.print(STATUS_LED_PIN);
+	  Serial.print(" ...");
+	  // Pin 13 has an LED connected on most Arduino boards:
+	  PinMode(STATUS_LED_PIN, OUTPUT);
+	  digitalWrite(STATUS_LED_PIN, HIGH);
+	Serial.println("Initialized OK");
 
-  Serial.print(">> MP3 Player...");
+	Serial.print("  >> State machines...");
+	  sm.state = SM_START;
+	  idlesm.state = IDLE_START;
+	Serial.println("Initialized OK");
+
+	Serial.print("  >> Battery monitor...");
+	  // battery level monitoring
+	  analogReference(INTERNAL); // use the internal ~1.1volt reference  | change (INTERNAL) to (INTERNAL1V1) for a Mega
+
+	#ifdef debug_mode
+	  b.every(5 * 1000L, oncheckBatteryLevel);     // every 5 sec low battery test
+	#else
+	  b.after(10 * 1000L, oncheckBatteryLevel);    // 10 sec to low battery test
+	  b.every(1 * 60 * 1000L, oncheckBatteryLevel);  // every 5 min low battery test
+	#endif
+
+	Serial.println("Initialized OK");
+  Serial.println("Core Initialized OK");
+
+  Serial.println(">> MP3 Player Initialization");
     pinMode(MP3_STATUS_PIN, INPUT);
     mp3Serial.begin(9600);  // MP3 serial communication setup
     mp3_set_serial (mp3Serial); //set Serial for DFPlayer-mini mp3 module
@@ -145,25 +170,23 @@ void setup() {
   	sound_syswelcome();
     glsb = e_readLastLibrary();  // set last library
 
-  #ifdef BOXAdam
-    attachInterrupt(digitalPinToInterrupt(MP3_STATUS_PIN), onSoundPlayingStoped, RISING);
-  #endif
-    
-  Serial.println("Initialized OK");
+	Serial.print("  >> Volume (0..30)...");
+	Serial.println(act_volume);
+	Serial.print("  >> Library (0..100)...");
+	Serial.println(glsb);
 
-  Serial.print(">> Core...");
-    analogReference(INTERNAL); // use the internal ~1.1volt reference  | change (INTERNAL) to (INTERNAL1V1) for a Mega
+	Serial.print("  >> Playback monitor on PIN");
+	Serial.print(MP3_STATUS_PIN);
 
-  #ifdef debug_mode
-    b.every(5*1000L,oncheckBatteryLevel);     // every 5 sec low battery test
-  #else
-    b.after(5*1000L,oncheckBatteryLevel);     // 5 sec to low battery test
-    b.every(1*60*1000L,oncheckBatteryLevel);  // every 5 min low battery test
-  #endif
+#ifdef interrupt_mode
+	// stop sound playback detection
+	attachInterrupt(digitalPinToInterrupt(MP3_STATUS_PIN), onSoundPlayingStoped, RISING);
+	Serial.print("Interrupt mode");
+#endif
 
-    sm.state = SM_START;
-    idlesm.state = IDLE_START; 
-  Serial.println("Initialized OK");
+	Serial.println();
+  Serial.println("MP3 Initialized OK");
+
   digitalWrite(STATUS_LED_PIN, LOW);
 }
 
@@ -176,27 +199,32 @@ void loop() {
   // mandatory timer call
   t.update();
   b.update();
+  k.update();
 
   // read pressed key from keypad
   char _key = keyboard.getKey();
 
+#ifdef interrupt_mode
   // check sound activity
   if (mp3_status_changed){
     mp3_status_changed = false;
-	_restartidletimer();  // sound plaing stopped or start. restart idle timer
+	_restartidletimer();  // sound playing stopped. restart idle timer
   }
+#endif
 
   // pressed key processing
   if (_key){
+	// Some key pressed. user is active. restart idle timers
+	_restartidletimers();  
+
     #ifdef debug_mode
-      Serial.print("Pressed key: ");
-      Serial.println(_key);
-      Serial.print(sm.state);
-      Serial.print("->");
+	  Serial.print("Pressed key: ");
+	  Serial.println(_key);
+	  Serial.print(sm.state);
+	  Serial.print("->");
     #endif
 
-    // Keypressed-based decision machine
-
+	// Keypressed-based decision machine
     switch (sm.state){
     case SM_START: // Initial
       if (CNs1t1(_key)) { sm.last_state = SM_START; TNs1t1(_key); }        // A..D game legend set 1..4 shortcut
@@ -205,7 +233,7 @@ void loop() {
       else if (CNs1t3(_key)) { sm.last_state = SM_START; TNs1t3(_key); }   // 0..9 -> SM_SELECTSOUND:
         break;
     case SM_SELECTMODE: // * reading base
-      if (CNs2t1(_key)) { sm.last_state = SM_SELECTMODE; TNs2t1(_key); }   // A..D/0..9# +keybuffer || ->SM_START
+      if (CNs2t1(_key)) { sm.last_state = SM_SELECTMODE; TNs2t1(_key); }   // A..D/0..9# +keybuffer || -> SM_START
       else { sm.last_state = SM_SELECTMODE; TNs2t2(); }                    // * -> SM_SELECTMODE:
         break;
     case SM_SELECTSOUND: // 0..9 reading sound index
@@ -222,13 +250,17 @@ void loop() {
         break;
     }
 
-    _restartidletimer();     // Some key pressed. user is active. restart idle timer 
-
     #ifdef debug_mode
       Serial.println(sm.state);
     #endif
-  } //if (_key)
-}
+  }  //else if (_key)
+  else {
+	  if (sound_isbusy() && (idlesm.state == IDLE_START)){
+	  //if playback is active and idle timer is in IDLE_START state restart idle timer
+  	    _restartidletimer();
+      //else do nothing, because any idle message is being played
+    }
+  } // if (_key)
 
 // =========================== EEPROM ================================
 
@@ -238,10 +270,10 @@ void e_InitializeVolumeMemory(){
 uint8_t e_readVolume(){
   uint8_t value = EEPROM.read(E_ADDR_PRIMARY_VOLUME_MEMORY);
   if ((value > MAX_VOLUME_LEVEL) || (value == 0)) {
-//    value = EEPROM.read(E_ADDR_SECONDARY_VOLUME_MEMORY);
-//    if ((value > MAX_VOLUME_LEVEL) || (value == 0)) {
+    value = EEPROM.read(E_ADDR_SECONDARY_VOLUME_MEMORY);
+    if ((value > MAX_VOLUME_LEVEL) || (value == 0)) {
       value = DEFAULT_SOUND_VOLUME;  
-//      }
+      }
     }
     act_volume = value;
     return value;
@@ -250,7 +282,7 @@ uint8_t e_readVolume(){
 void e_saveVolume(uint8_t volume){
   if (act_volume != volume){
     EEPROM.write(E_ADDR_PRIMARY_VOLUME_MEMORY, volume); 
-//    EEPROM.write(E_ADDR_SECONDARY_VOLUME_MEMORY,volume); 
+    EEPROM.write(E_ADDR_SECONDARY_VOLUME_MEMORY,volume); 
     act_volume = volume;
     }
   }
@@ -318,18 +350,15 @@ bool CNs4t4 (char c) {
 void TNs1t2 () {
   sound_stop();
   sm.state = SM_SELECTMODE;
-  digitalWrite(STATUS_LED_PIN, HIGH);
 }
 
 void TNs1t3 (char c) {
   keypadbuffer += c;
   sm.state = SM_SELECTSOUND;
-  digitalWrite(STATUS_LED_PIN, HIGH);
 }
 
 void TNs1t4 () {
   sm.state = SM_SETVOLUME;
-  digitalWrite(STATUS_LED_PIN, HIGH);
 }
 
 void TNs1t1(char c) {
@@ -433,7 +462,7 @@ void _restart ()
 {
   sm.state = SM_START;
   keypadbuffer = "";
-  digitalWrite(STATUS_LED_PIN, LOW);
+  _clearkeypadidletimer();
 }
 
 // ========================= SOUND PLAYBACK =======================
@@ -544,7 +573,7 @@ long readVcc(){
   return result; 
 }
 
-// ========================= TIMER ============================
+// ========================= TIMERS ============================
 
 void _restartidletimer ()
 {
@@ -552,19 +581,29 @@ void _restartidletimer ()
   if (sys_volume_level_active){
     sys_volume_level_active = false;
     mp3_set_volume(act_volume);
+	delay(10);  //wait 10ms for mp3 module to recover
   }
   for (int8_t i = 0; i < MAX_NUMBER_OF_EVENTS; i++){t.stop(i);};
-
-  if (sm.state != SM_START) {
-    t.after(10 * 1000L, onWaitTooLongForInput);  // set 10 sec input timeout
-  }
 
   t.after(5*60*1000L,onIdleWhile);          // 5 min warning on idle
   t.after(10*60*1000L,onIdleLonger);        // 10 min warning on idle
   t.after(15*60*1000L,onIdleTooLong);       // 15 min warning on idle
 }
 
-// ===== Timer: input timeout ==============
+void _clearkeypadidletimer()
+{
+	for (int8_t i = 0; i < MAX_NUMBER_OF_EVENTS; i++){ k.stop(i); };
+	digitalWrite(STATUS_LED_PIN, LOW);
+}
+
+void _restartidletimers()
+{
+	_clearkeypadidletimer();
+	k.after(10 * 1000L, onWaitTooLongForInput);  // set 10 sec input timeout
+	digitalWrite(STATUS_LED_PIN, HIGH);
+	_restartidletimer();
+}
+
 void onWaitTooLongForInput()
 {
   sound_sysinputtimeout();
@@ -578,7 +617,6 @@ void onIdleWhile()
     sound_setsysvolumelevel();
     mp3_play(2);
     idlesm.state = IDLE_WAITING;
-    _restart ();
   }
   else {
     _restartidletimer ();
@@ -590,7 +628,6 @@ void onIdleLonger()
   if(!sound_isbusy()){
     mp3_play(3);
     idlesm.state = IDLE_NERVOUS;
-    _restart ();
   }
   else {
     _restartidletimer ();
@@ -602,14 +639,16 @@ void onIdleTooLong()
   if(!sound_isbusy()){
     mp3_play(4);
     idlesm.state = IDLE_FORGOTTEN;
-    _restart ();
   }
   else {
     _restartidletimer ();
   }
 }
 
+#ifdef interrupt_mode
+// interrupt routine
 void onSoundPlayingStoped() 
 {
   mp3_status_changed = true;
 }
+#endif
